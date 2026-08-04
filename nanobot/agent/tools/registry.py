@@ -105,7 +105,16 @@ class ToolRegistry:
             mcp_tools.sort(key=self._schema_name)
             self._cached_definitions = builtins + mcp_tools
 
-        return self._cached_definitions
+        request_ctx = current_request_context()
+        enabled_tools = request_ctx.enabled_tools if request_ctx is not None else None
+        return [
+            schema
+            for schema in self._cached_definitions
+            if (
+                enabled_tools is None
+                or self._schema_name(schema) in enabled_tools
+            )
+        ]
 
     def prepare_call(
         self,

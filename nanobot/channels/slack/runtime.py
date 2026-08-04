@@ -16,6 +16,7 @@ from slackify_markdown import slackify_markdown  # pyright: ignore[reportMissing
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent
+from nanobot.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
@@ -73,6 +74,8 @@ class SlackConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
     group_policy: str = "mention"
     group_allow_from: list[str] = Field(default_factory=list)
+    sender_names: dict[str, str] = Field(default_factory=dict)
+    process_participated_threads: bool = False
     # When group_policy is "allowlist", also require the bot to be @mentioned
     # before responding (so it only replies to mentions in approved channels,
     # instead of every message). No effect for "mention"/"open" policies.
@@ -104,7 +107,7 @@ class SlackChannel(BaseChannel):
 
     _THREAD_CONTEXT_CACHE_LIMIT = 10_000
 
-    def __init__(self, config: Any, bus: MessageBus):
+    def __init__(self, config: Any, bus: MessageBus, **kwargs: Any):
         if isinstance(config, dict):
             config = SlackConfig.model_validate(config)
         super().__init__(config, bus)
@@ -114,6 +117,8 @@ class SlackChannel(BaseChannel):
         self._bot_user_id: str | None = None
         self._target_cache: dict[str, str] = {}
         self._thread_context_attempted: set[str] = set()
+        raw_session_manager = kwargs.get("session_manager")
+        self.session_manager = raw_session_manager if raw_session_manager is not None else None
 
     def _require_web_api(self) -> _SlackWebAPI:
         if self._web_client is None:
@@ -418,6 +423,7 @@ class SlackChannel(BaseChannel):
 
         sender_id = event.get("user")
         chat_id = event.get("channel")
+        sender_name = self._resolve_sender_name(sender_id)
 
         subtype = event.get("subtype")
         # Slack uses subtype=file_share for user messages with attachments.
@@ -462,16 +468,21 @@ class SlackChannel(BaseChannel):
                 )
             return
 
-        if channel_type != "im" and not self._should_respond_in_channel(event_type, text, chat_id):
-            return
-
-        text = self._strip_bot_mention(text)
-
         event_ts = event.get("ts")
         event_ts = event_ts if isinstance(event_ts, str) else None
         raw_thread_ts = event.get("thread_ts")
         raw_thread_ts = raw_thread_ts if isinstance(raw_thread_ts, str) else None
         thread_ts = raw_thread_ts
+        participates_in_thread = (
+            channel_type != "im"
+            and raw_thread_ts is not None
+            and self._has_participated_thread_session(chat_id, raw_thread_ts)
+        )
+        allow_skip_reply = participates_in_thread and not self._is_mention(event_type, text)
+        if channel_type != "im" and not participates_in_thread and not self._should_respond_in_channel(event_type, text, chat_id):
+            return
+
+        text = self._strip_bot_mention(text)
         # In DMs we don't auto-open a thread on top-level messages (it would
         # bury replies under "1 reply"). But if the user explicitly opened a
         # thread inside the DM, raw_thread_ts is set and we honor it.
@@ -493,11 +504,12 @@ class SlackChannel(BaseChannel):
         except Exception as e:
             self.logger.debug("reactions_add failed: {}", e)
 
-        # Thread-scoped session key whenever the turn lives in a thread: either the
-        # message arrived inside one (raw_thread_ts) or reply_in_thread opens a new
-        # thread for this channel message. DM roots have no thread_ts and keep the
-        # default per-chat session, so context doesn't bleed across thread boundaries.
-        session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts else None
+        # Thread-scoped session key whenever the user is in a real thread
+        # (raw_thread_ts is set). DM threads get their own session, separate
+        # from the DM root, so context doesn't bleed across thread boundaries.
+        session_key = (
+            f"slack:{chat_id}:{thread_ts}" if thread_ts and raw_thread_ts else None
+        )
         media_paths: list[str] = []
         file_markers: list[str] = []
         for file_info in _as_json_list(event.get("files")) or []:
@@ -524,19 +536,36 @@ class SlackChannel(BaseChannel):
         if not content and not media_paths:
             return
 
+        sender_context = self._sender_context_blocks(sender_id)
+        metadata: dict[str, Any] = {
+            "slack": {
+                "event": event,
+                "thread_ts": thread_ts,
+                "channel_type": channel_type,
+                "sender_name": sender_name,
+            },
+        }
+        if allow_skip_reply:
+            metadata["_allow_skip_reply"] = True
+            guidance = RuntimeContextBlock(
+                source="slack_participated_thread",
+                content=wrap_runtime_context_lines([
+                    "[Slack participated-thread reply without direct mention]",
+                    "Respond only if a reply is actually useful or necessary.",
+                    "If the message does not warrant a visible reply, call skip_reply.",
+                ]),
+            )
+            metadata["_runtime_context_blocks"] = [*sender_context, guidance]
+        elif sender_context:
+            metadata["_runtime_context_blocks"] = sender_context
+
         try:
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=chat_id,
                 content=content,
                 media=media_paths,
-                metadata={
-                    "slack": {
-                        "event": event,
-                        "thread_ts": thread_ts,
-                        "channel_type": channel_type,
-                    },
-                },
+                metadata=metadata,
                 session_key=session_key,
             )
         except Exception:
@@ -575,6 +604,25 @@ class SlackChannel(BaseChannel):
         except Exception as e:
             self.logger.warning("Failed to download file {}: {}", file_id, e)
             return None, self._download_failure_marker(marker_type, name, "download failed")
+
+    def _resolve_sender_name(self, sender_id: Any) -> str | None:
+        if sender_id is None:
+            return None
+        return self.config.sender_names.get(str(sender_id)) or None
+
+    def _sender_context_blocks(self, sender_id: Any) -> list[RuntimeContextBlock]:
+        sender_name = self._resolve_sender_name(sender_id)
+        if not sender_name:
+            return []
+        return [
+            RuntimeContextBlock(
+                source="slack_sender",
+                content=wrap_runtime_context_lines([
+                    f"The following Slack message is from {sender_name}.",
+                    f"Slack sender ID: {sender_id}.",
+                ]),
+            )
+        ]
 
     @staticmethod
     def _download_failure_marker(marker_type: str, name: str, reason: str) -> str:
@@ -755,6 +803,11 @@ class SlackChannel(BaseChannel):
         if event_type == "app_mention":
             return True
         return self._bot_user_id is not None and f"<@{self._bot_user_id}>" in text
+
+    def _has_participated_thread_session(self, chat_id: str, thread_ts: str | None) -> bool:
+        if not self.config.process_participated_threads or not thread_ts or self.session_manager is None:
+            return False
+        return self.session_manager.exists(f"slack:{chat_id}:{thread_ts}")
 
     def _should_respond_in_channel(self, event_type: str, text: str, chat_id: str) -> bool:
         if self.config.group_policy == "open":
