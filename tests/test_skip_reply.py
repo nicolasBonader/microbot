@@ -51,6 +51,21 @@ async def test_skip_reply_tool_hidden_without_flag():
 
 
 @pytest.mark.asyncio
+async def test_skip_reply_tool_cannot_execute_without_flag():
+    registry = ToolRegistry()
+    registry.register(SkipReplyTool())
+    token = bind_request_context(
+        RequestContext(channel="slack", chat_id="C1", enabled_tools=set()),
+    )
+    try:
+        tool, _, error = registry.prepare_call("skip_reply", {})
+    finally:
+        reset_request_context(token)
+    assert tool is None
+    assert error == "Error: Tool 'skip_reply' is not enabled for this turn"
+
+
+@pytest.mark.asyncio
 async def test_skip_reply_tool_visible_with_flag():
     registry = ToolRegistry()
     registry.register(SkipReplyTool())
@@ -94,6 +109,9 @@ async def test_runner_stops_on_skip_reply(tmp_path: Path):
         reset_request_context(token)
     assert result.stop_reason == "skip_reply"
     assert result.final_content is None
+    assert result.messages[-1]["role"] == "tool"
+    assert result.messages[-1]["tool_call_id"] == "call1"
+    assert result.messages[-1]["name"] == "skip_reply"
 
 
 def test_slack_sender_context_and_participated_thread(tmp_path: Path):
