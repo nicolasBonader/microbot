@@ -473,10 +473,13 @@ class SlackChannel(BaseChannel):
         raw_thread_ts = event.get("thread_ts")
         raw_thread_ts = raw_thread_ts if isinstance(raw_thread_ts, str) else None
         thread_ts = raw_thread_ts
+        canonical_thread_ts = raw_thread_ts
+        if self.config.reply_in_thread and channel_type != "im" and not canonical_thread_ts:
+            canonical_thread_ts = event_ts
         participates_in_thread = (
             channel_type != "im"
             and raw_thread_ts is not None
-            and self._has_participated_thread_session(chat_id, raw_thread_ts)
+            and self._has_participated_thread_session(chat_id, canonical_thread_ts)
         )
         allow_skip_reply = participates_in_thread and not self._is_mention(event_type, text)
         if channel_type != "im" and not participates_in_thread and not self._should_respond_in_channel(event_type, text, chat_id):
@@ -504,12 +507,16 @@ class SlackChannel(BaseChannel):
         except Exception as e:
             self.logger.debug("reactions_add failed: {}", e)
 
-        # Thread-scoped session key whenever the user is in a real thread
-        # (raw_thread_ts is set). DM threads get their own session, separate
-        # from the DM root, so context doesn't bleed across thread boundaries.
-        session_key = (
-            f"slack:{chat_id}:{thread_ts}" if thread_ts and raw_thread_ts else None
-        )
+        # Thread-scoped session key for channel conversations that reply in a
+        # thread. Use the root message ts as the canonical thread identity so a
+        # top-level mention and the first real thread reply share the same
+        # session. DM threads stay separate from the DM root, but top-level DMs
+        # still use the base session.
+        session_key = None
+        if channel_type != "im" and canonical_thread_ts:
+            session_key = f"slack:{chat_id}:{canonical_thread_ts}"
+        elif thread_ts and raw_thread_ts:
+            session_key = f"slack:{chat_id}:{thread_ts}"
         media_paths: list[str] = []
         file_markers: list[str] = []
         for file_info in _as_json_list(event.get("files")) or []:
