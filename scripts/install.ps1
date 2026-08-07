@@ -6,9 +6,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$ForkSource = "https://github.com/nicolasBonader/nanobot-fixes/archive/refs/heads/custom-nanobot.zip"
+$ForkSource = "https://github.com/nicolasBonader/microbot/archive/refs/heads/microbot.zip"
 $InstallTarget = $ForkSource
-$InstallSource = "nicolasBonader/nanobot-fixes branch custom-nanobot"
+$InstallSource = "nicolasBonader/microbot branch microbot"
 $script:NanobotRunner = $null
 $script:NanobotPython = $null
 $script:LastInstallSucceeded = $false
@@ -38,13 +38,13 @@ function Show-InstallFailureHint {
 function Show-Usage {
     Write-Host "Usage: install.ps1 [-DryRun|--dry-run]"
     Write-Host ""
-    Write-Host "This installs or upgrades nanobot from the custom-nanobot branch of"
-    Write-Host "nicolasBonader/nanobot-fixes on GitHub."
+    Write-Host "This installs or upgrades nanobot from the microbot branch of"
+    Write-Host "nicolasBonader/microbot on GitHub."
     Write-Host "Use --dry-run to print what would happen without installing or starting setup."
 }
 
 function Confirm-ForkInstall {
-    Write-Warning "This script installs the nicolasBonader/nanobot-fixes fork from branch custom-nanobot."
+    Write-Warning "This script installs the nicolasBonader/microbot fork from branch microbot."
     try {
         $Answer = Read-Host "Continue? (y/N)"
     } catch {

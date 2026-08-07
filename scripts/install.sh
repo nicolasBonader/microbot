@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-fork_source="https://github.com/nicolasBonader/nanobot-fixes/archive/refs/heads/custom-nanobot.zip"
+fork_source="https://github.com/nicolasBonader/microbot/archive/refs/heads/microbot.zip"
 install_target="$fork_source"
-install_source="nicolasBonader/nanobot-fixes branch custom-nanobot"
+install_source="nicolasBonader/microbot branch microbot"
 dry_run="0"
 nanobot_runner=""
 nanobot_python=""
@@ -33,14 +33,14 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [--dry-run]
 
-This installs or upgrades nanobot from the custom-nanobot branch of
-nicolasBonader/nanobot-fixes on GitHub.
+This installs or upgrades nanobot from the microbot branch of
+nicolasBonader/microbot on GitHub.
 Use --dry-run to print what would happen without installing or starting setup.
 EOF
 }
 
 confirm_fork_install() {
-  info "WARNING: This script installs the nicolasBonader/nanobot-fixes fork from branch custom-nanobot."
+  info "WARNING: This script installs the nicolasBonader/microbot fork from branch microbot."
   printf 'Continue? (y/N) '
 
   answer=""
