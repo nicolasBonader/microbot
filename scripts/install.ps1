@@ -1,5 +1,4 @@
 param(
-    [switch]$Dev,
     [switch]$DryRun,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RemainingArgs
@@ -7,10 +6,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Package = "nanobot-ai"
-$MainSource = "https://github.com/HKUDS/nanobot/archive/refs/heads/main.zip"
-$InstallTarget = $Package
-$InstallSource = "PyPI"
+$ForkSource = "https://github.com/nicolasBonader/nanobot-fixes/archive/refs/heads/custom-nanobot.zip"
+$InstallTarget = $ForkSource
+$InstallSource = "nicolasBonader/nanobot-fixes branch custom-nanobot"
 $script:NanobotRunner = $null
 $script:NanobotPython = $null
 $script:LastInstallSucceeded = $false
@@ -38,11 +36,25 @@ function Show-InstallFailureHint {
 }
 
 function Show-Usage {
-    Write-Host "Usage: install.ps1 [-Dev|--dev] [-DryRun|--dry-run]"
+    Write-Host "Usage: install.ps1 [-DryRun|--dry-run]"
     Write-Host ""
-    Write-Host "By default this installs or upgrades nanobot-ai from PyPI."
-    Write-Host "Use --dev to install from the current main branch on GitHub."
+    Write-Host "This installs or upgrades nanobot from the custom-nanobot branch of"
+    Write-Host "nicolasBonader/nanobot-fixes on GitHub."
     Write-Host "Use --dry-run to print what would happen without installing or starting setup."
+}
+
+function Confirm-ForkInstall {
+    Write-Warning "This script installs the nicolasBonader/nanobot-fixes fork from branch custom-nanobot."
+    try {
+        $Answer = Read-Host "Continue? (y/N)"
+    } catch {
+        Fail "interactive confirmation is required, but no terminal is available."
+    }
+    if ($Answer -notmatch "^(?i:y|yes)$") {
+        Write-Info "Installation cancelled."
+        return $false
+    }
+    return $true
 }
 
 function Test-Python {
@@ -224,9 +236,6 @@ function Install-WithManagedVenv {
 
 foreach ($Arg in $RemainingArgs) {
     switch ($Arg) {
-        "--dev" {
-            $Dev = $true
-        }
         "--dry-run" {
             $DryRun = $true
         }
@@ -244,9 +253,8 @@ foreach ($Arg in $RemainingArgs) {
     }
 }
 
-if ($Dev) {
-    $InstallTarget = $MainSource
-    $InstallSource = "GitHub main"
+if (-not $DryRun -and -not (Confirm-ForkInstall)) {
+    return
 }
 
 $Python = Find-Python
