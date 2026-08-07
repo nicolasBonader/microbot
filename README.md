@@ -71,13 +71,12 @@ nanobot is a self-hosted personal AI agent runtime. It can:
 ## 📦 Install
 
 > [!IMPORTANT]
-> If you want the newest features and experiments, install from source.
->
-> If you want the most stable day-to-day experience, install from PyPI or with `uv`.
+> Microbot is maintained on the `microbot` branch of this repository. The
+> `nanobot-ai` package published on PyPI is the upstream nanobot project, not Microbot.
 
 Pick **one** install method:
 
-Prerequisites: Python 3.11 or newer. Git is only needed for a source install. Published packages already include the WebUI; a current-source install needs `bun` or `npm` to build it.
+Prerequisites: Python 3.11 or newer. Git is only needed for a source checkout. Installing Microbot from its branch requires `bun` or `npm` to build the WebUI.
 
 If terminals, API keys, or config files are new to you, use the guided zero-background walkthrough in [Start Without Technical Background](./docs/start-without-technical-background.md) instead of this compact README path.
 
@@ -86,35 +85,25 @@ If terminals, API keys, or config files are new to you, use the guided zero-back
 macOS / Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nicolasBonader/microbot/microbot/scripts/install.sh | sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/nicolasBonader/microbot/microbot/scripts/install.ps1 | iex
 ```
 
-The default command installs or upgrades `nanobot-ai` from PyPI. On a fresh local desktop, it then starts `nanobot webui` so you can configure the first provider and model in **Settings → Models**. SSH, headless, existing-config, and older-release paths keep the terminal setup wizard. The installer avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanobot/venv`. It also prints the exact command it used to run nanobot; reuse that full command below if `nanobot` is not on `PATH`.
+The installer warns that it is installing the Microbot fork, asks for confirmation, and then installs or upgrades the `microbot` branch. On a fresh local desktop, it starts `nanobot webui` so you can configure the first provider and model in **Settings → Models**. SSH, headless, existing-config, and older-release paths keep the terminal setup wizard. The installer avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanobot/venv`. It also prints the exact command it used to run nanobot; reuse that full command below if `nanobot` is not on `PATH`.
 
-To preview the plan without changing your environment, pass `--dry-run`; combine it with `--dev` when you want to preview the main-branch install.
+To preview the plan without changing your environment or being prompted for confirmation, pass `--dry-run`.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/nicolasBonader/microbot/microbot/scripts/install.sh | sh -s -- --dry-run
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1))) --dry-run
-```
-
-To install the current `main` branch instead, pass `--dev`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh -s -- --dev
-```
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1))) --dev
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nicolasBonader/microbot/microbot/scripts/install.ps1))) --dry-run
 ```
 
 If you prefer to inspect the script first, open [`scripts/install.sh`](./scripts/install.sh) or [`scripts/install.ps1`](./scripts/install.ps1).
@@ -122,24 +111,24 @@ If you prefer to inspect the script first, open [`scripts/install.sh`](./scripts
 **Install with `uv`**
 
 ```bash
-uv tool install nanobot-ai
+uv tool install --force --upgrade https://github.com/nicolasBonader/microbot/archive/refs/heads/microbot.zip
 ```
 
-**Install from PyPI with pip**
+**Install with pip**
 
 ```bash
-python -m pip install nanobot-ai
+python -m pip install --upgrade https://github.com/nicolasBonader/microbot/archive/refs/heads/microbot.zip
 ```
 
-If pip reports `externally-managed-environment` on macOS or Linux, use the one-command installer, `uv tool install nanobot-ai`, `pipx install nanobot-ai`, or install inside a virtual environment.
+If pip reports `externally-managed-environment` on macOS or Linux, use the one-command installer, `uv tool`, `pipx`, or install inside a virtual environment.
 
 **Install from source**
 
 `bun` or `npm` must be available. From an activated virtual environment:
 
 ```bash
-git clone https://github.com/HKUDS/nanobot.git
-cd nanobot
+git clone --branch microbot https://github.com/nicolasBonader/microbot.git
+cd microbot
 python -m pip install .
 ```
 
@@ -151,7 +140,7 @@ Verify the install:
 nanobot --version
 ```
 
-If `nanobot` is not on `PATH`, invoke it through the method that installed it: reuse the recommended installer's command, use `uv tool run --from nanobot-ai nanobot ...` or `pipx run --spec nanobot-ai nanobot ...`, or use the Python executable from the environment where pip installed the package.
+If `nanobot` is not on `PATH`, invoke it through the method that installed it: reuse the exact command printed by the installer, or use the Python executable from the environment where pip installed the package.
 
 ## 🚀 Quick Start
 
