@@ -22,6 +22,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir, get_runtime_subdir
 from nanobot.config.schema import Base
+from nanobot.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
 from nanobot.security.network import PinnedDNSAsyncTransport
 
 
@@ -33,6 +34,7 @@ class WhatsAppConfig(Base):
     group_policy: Literal["open", "mention"] = "open"
     database_path: str = ""
     lid_mappings: dict[str, str] = Field(default_factory=dict)
+    contacts: dict[str, Any] = Field(default_factory=dict)
 
 
 class _NeonizeAPI(NamedTuple):
@@ -318,6 +320,7 @@ class WhatsAppChannel(BaseChannel):
         self._connected = False
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._lid_to_phone = self._load_lid_mappings()
+        self._contacts = self._load_contacts()
         self._self_jids: set[str] = set()
         self._started_at = 0.0
 
@@ -332,6 +335,55 @@ class WhatsAppChannel(BaseChannel):
             if phone_text:
                 mapping[str(lid).strip()] = phone_text
         return mapping
+
+    def _load_contacts(self) -> dict[str, dict[str, Any]]:
+        """Build a normalized phone -> contact mapping from config.contacts.
+
+        Supports entries that are either a dict (e.g. {"name": "Mili"}) or a
+        plain string (e.g. "Mili").
+        """
+        contacts: dict[str, dict[str, Any]] = {}
+        for phone, info in (self.config.contacts or {}).items():
+            phone_text = str(phone).strip()
+            if not phone_text:
+                continue
+            if isinstance(info, dict):
+                contacts[phone_text] = dict(info)
+            elif isinstance(info, str):
+                contacts[phone_text] = {"name": info}
+        return contacts
+
+    def _sender_context_blocks(self, phone_id: str | None) -> list[RuntimeContextBlock]:
+        """Return runtime context blocks identifying the WhatsApp sender."""
+        has_contacts = bool(self._contacts)
+        if not phone_id:
+            if has_contacts:
+                self.logger.warning(
+                    "WhatsApp sender has no resolvable phone ID; cannot inject sender context."
+                )
+            return []
+        phone_text = phone_id.strip()
+        contact = self._contacts.get(phone_text)
+        if not contact:
+            if has_contacts:
+                self.logger.warning(
+                    "WhatsApp sender {} is not in contacts mapping; cannot inject sender context.",
+                    phone_text,
+                )
+            return []
+        name = contact.get("name")
+        if not isinstance(name, str) or not name:
+            if has_contacts:
+                self.logger.warning(
+                    "WhatsApp sender {} has a contact entry without a name; cannot inject sender context.",
+                    phone_text,
+                )
+            return []
+        lines = [f"El siguiente mensaje de WhatsApp es de {name}."]
+        household = contact.get("household")
+        if isinstance(household, str) and household:
+            lines.append(f"Grupo familiar: {household}.")
+        return [RuntimeContextBlock(source="whatsapp_sender", content=wrap_runtime_context_lines(lines))]
 
     def _new_client(self) -> Any:
         api = _load_neonize()
@@ -452,8 +504,45 @@ class WhatsAppChannel(BaseChannel):
             await client.send_image(to, source)
         elif mimetype.startswith("video/"):
             await client.send_video(to, source)
-        elif mimetype in _DIRECT_AUDIO_MIMETYPES:
-            await client.send_audio(to, source)
+        elif mimetype.startswith("audio/"):
+            if isinstance(source, str):
+                from neonize.proto.waE2E.WAWebProtobufsE2E_pb2 import Message, AudioMessage
+                from neonize.utils.enum import MediaType
+                from neonize.utils.ffmpeg import AFFmpeg
+
+                path = source
+                if not path.lower().endswith(".ogg"):
+                    self.logger.info("Converting audio to OGG Opus for WhatsApp voice note: {}", path)
+                    path = await self._convert_to_ogg_opus(path)
+
+                with open(path, "rb") as file:
+                    buff = file.read()
+                upload = await client.upload(buff, MediaType.MediaAudio)
+
+                async with AFFmpeg(path) as ffmpeg:
+                    info = await ffmpeg.extract_info()
+                    duration = int(info.format.duration or 0)
+
+                waveform = bytes([128] * 64)
+
+                message = Message(
+                    audioMessage=AudioMessage(
+                        URL=upload.url,
+                        seconds=duration,
+                        directPath=upload.DirectPath,
+                        fileEncSHA256=upload.FileEncSHA256,
+                        fileLength=upload.FileLength,
+                        fileSHA256=upload.FileSHA256,
+                        mediaKey=upload.MediaKey,
+                        mimetype="audio/ogg; codecs=opus",
+                        PTT=True,
+                        waveform=waveform,
+                    )
+                )
+                result = await client.send_message(to, message)
+                self.logger.info("WhatsApp voice message sent: ID={}", result.ID)
+            else:
+                await client.send_audio(to, source)
         else:
             await client.send_document(
                 to,
@@ -461,6 +550,31 @@ class WhatsAppChannel(BaseChannel):
                 filename=filename,
                 mimetype=mimetype,
             )
+
+    async def _convert_to_ogg_opus(self, input_path: str) -> str:
+        """Convert an audio file to WhatsApp-compatible OGG Opus (mono, 48 kHz)."""
+        output_path = str(Path(input_path).with_suffix("")) + "_whatsapp.ogg"
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-y",
+            "-i",
+            input_path,
+            "-c:a",
+            "libopus",
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-b:a",
+            "32k",
+            output_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg OGG Opus conversion failed for {input_path}")
+        return output_path
 
     async def _fetch_remote_media(self, url: str) -> bytes:
         timeout = httpx.Timeout(_REMOTE_MEDIA_TIMEOUT_SECONDS, connect=10.0)
@@ -671,6 +785,9 @@ class WhatsAppChannel(BaseChannel):
             "phone": phone_id or None,
             "is_reply_to_bot": self._is_reply_to_bot(message),
         }
+        sender_context = self._sender_context_blocks(phone_id)
+        if sender_context:
+            metadata["_runtime_context_blocks"] = sender_context
         sender_allowed = self.is_allowed(sender_id)
         group_allow_id = self._group_allow_id(chat_jid) if is_group else None
         authorization_id = sender_id if sender_allowed else group_allow_id

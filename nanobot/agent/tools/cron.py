@@ -7,6 +7,7 @@ from __future__ import annotations
 from contextvars import ContextVar, Token
 from datetime import datetime
 from typing import Any
+import json
 
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import ToolContext, current_request_context
@@ -82,7 +83,12 @@ class CronTool(Tool):
         session_key = (
             raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
         )
-        return session_key, ctx.channel or "", ctx.chat_id or "", dict(ctx.metadata or {})
+        # Strip runtime context blocks and coerce everything else to JSON-safe
+        # values so the cron store can serialize the job payload.
+        metadata = json.loads(
+            json.dumps(dict(ctx.metadata or {}), default=lambda _obj: None),
+        )
+        return session_key, ctx.channel or "", ctx.chat_id or "", metadata
 
     def set_cron_context(self, active: bool) -> Token[bool]:
         """Mark whether the tool is executing inside a cron job callback."""
