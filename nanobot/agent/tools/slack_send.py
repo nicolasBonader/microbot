@@ -1,4 +1,4 @@
-"""Messa Slack tool — send messages to Slack channels and register thread participation."""
+"""Slack send tool — send messages to Slack channels and register thread participation."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _resolve_channel_id(token: str, name: str) -> str:
         required=["channel", "message"],
     )
 )
-class MessaSlackTool(Tool):
+class SlackSendTool(Tool):
     """Send a message to a Slack channel and register the thread so replies are processed."""
 
     def __init__(self, bot_token: str = "", sessions: Any = None) -> None:
@@ -87,7 +87,7 @@ class MessaSlackTool(Tool):
             return {}
 
     @classmethod
-    def create(cls, ctx: ToolContext) -> "MessaSlackTool":
+    def create(cls, ctx: ToolContext) -> "SlackSendTool":
         slack_cfg = cls._load_slack_config()
         bot_token: str = slack_cfg.get("botToken", "") or slack_cfg.get("bot_token", "")
         return cls(bot_token=bot_token, sessions=ctx.sessions)
@@ -99,12 +99,12 @@ class MessaSlackTool(Tool):
 
     @property
     def name(self) -> str:
-        return "messa_slack_send"
+        return "slack_send"
 
     @property
     def description(self) -> str:
         return (
-            "Send a message to a Slack channel using the Messa bot. "
+            "Send a message to a Slack channel. "
             "The bot will be registered as a participant in the resulting thread, "
             "so replies to that message will be processed automatically."
         )
