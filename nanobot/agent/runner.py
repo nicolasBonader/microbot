@@ -553,6 +553,10 @@ class AgentRunner:
                 )
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
+                skip_reply_requested = any(
+                    tool_call.name == "skip_reply" and event.get("status") == "ok"
+                    for tool_call, event in zip(response.tool_calls, new_events)
+                )
                 completed_tool_results: list[dict[str, Any]] = []
                 for tool_call, result in zip(response.tool_calls, results):
                     tool_message = {
@@ -610,6 +614,22 @@ class AgentRunner:
                         ),
                     },
                 )
+                if skip_reply_requested:
+                    context.final_content = None
+                    context.stop_reason = "skip_reply"
+                    await hook.after_iteration(context)
+                    return AgentRunResult(
+                        final_content=None,
+                        messages=messages,
+                        tools_used=tools_used,
+                        usage=usage,
+                        stop_reason="skip_reply",
+                        error=None,
+                        tool_events=tool_events,
+                        had_injections=had_injections,
+                        pending_stream_content=pending_stream_content,
+                        provider_state=conversation_state.finish(messages),
+                    )
                 empty_content_retries = 0
                 length_recovery_parts.clear()
                 # Checkpoint 1: drain injections after tools, before next LLM call

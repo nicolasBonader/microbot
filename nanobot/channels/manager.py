@@ -184,6 +184,9 @@ class ChannelManager:
                 logger=logger,
             )
             kwargs["gateway"] = gateway
+        elif cls.name == "slack":
+            kwargs["session_manager"] = self._session_manager
+
         channel = cls(section, self.bus, **kwargs)
         if runtime_name and runtime_name != channel.name:
             channel.name = runtime_name

@@ -1058,6 +1058,12 @@ class SessionManager:
         """Legacy global session path (~/.nanobot/sessions/)."""
         return self._jsonl_store.get_legacy_session_path(key)
 
+    def exists(self, key: str) -> bool:
+        """Return whether a session exists in cache or on disk without creating it."""
+        if self._cached(key) is not None:
+            return True
+        return self._load(key) is not None
+
     def get_or_create(self, key: str) -> Session:
         """
         Get an existing session or create a new one.

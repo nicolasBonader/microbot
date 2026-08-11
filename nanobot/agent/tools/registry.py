@@ -105,7 +105,16 @@ class ToolRegistry:
             mcp_tools.sort(key=self._schema_name)
             self._cached_definitions = builtins + mcp_tools
 
-        return self._cached_definitions
+        request_ctx = current_request_context()
+        enabled_tools = request_ctx.enabled_tools if request_ctx is not None else None
+        return [
+            schema
+            for schema in self._cached_definitions
+            if (
+                enabled_tools is None
+                or self._schema_name(schema) in enabled_tools
+            )
+        ]
 
     def prepare_call(
         self,
@@ -122,6 +131,12 @@ class ToolRegistry:
                     f"Error: Tool '{name}' not found.{hint} Available: {', '.join(self.tool_names)}"
                 )
             )
+        request_ctx = current_request_context()
+        if request_ctx is not None and request_ctx.enabled_tools is not None:
+            if name not in request_ctx.enabled_tools:
+                return None, params, ToolResult.error(
+                    f"Error: Tool '{name}' is not enabled for this turn"
+                )
         # Compatibility for external tools that still implement the legacy
         # setter protocol. Built-ins read the authoritative ContextVar
         # directly and never copy routing state.

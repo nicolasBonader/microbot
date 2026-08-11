@@ -1,10 +1,9 @@
 #!/bin/sh
 set -eu
 
-package="nanobot-ai"
-main_source="https://github.com/HKUDS/nanobot/archive/refs/heads/main.zip"
-install_target="$package"
-install_source="PyPI"
+fork_source="https://github.com/nicolasBonader/microbot/archive/refs/heads/microbot.zip"
+install_target="$fork_source"
+install_source="nicolasBonader/microbot branch microbot"
 dry_run="0"
 nanobot_runner=""
 nanobot_python=""
@@ -32,12 +31,35 @@ install_failure_hint() {
 
 usage() {
   cat <<'EOF'
-Usage: install.sh [--dev] [--dry-run]
+Usage: install.sh [--dry-run]
 
-By default this installs or upgrades nanobot-ai from PyPI.
-Use --dev to install from the current main branch on GitHub.
+This installs or upgrades nanobot from the microbot branch of
+nicolasBonader/microbot on GitHub.
 Use --dry-run to print what would happen without installing or starting setup.
 EOF
+}
+
+confirm_fork_install() {
+  info "WARNING: This script installs the nicolasBonader/microbot fork from branch microbot."
+  printf 'Continue? (y/N) '
+
+  answer=""
+  if [ -t 0 ]; then
+    IFS= read -r answer || true
+  elif : 2>/dev/null < /dev/tty; then
+    IFS= read -r answer < /dev/tty || true
+  else
+    fail "interactive confirmation is required, but no terminal is available"
+  fi
+
+  case "$answer" in
+    y|Y|yes|YES|Yes)
+      ;;
+    *)
+      info "Installation cancelled."
+      exit 0
+      ;;
+  esac
 }
 
 find_python() {
@@ -199,10 +221,6 @@ PY
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --dev)
-      install_target="$main_source"
-      install_source="GitHub main"
-      ;;
     --dry-run)
       dry_run="1"
       ;;
@@ -216,6 +234,10 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+if [ "$dry_run" != "1" ]; then
+  confirm_fork_install
+fi
 
 python_bin="${PYTHON:-}"
 

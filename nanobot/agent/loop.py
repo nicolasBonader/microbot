@@ -36,6 +36,7 @@ from nanobot.agent.tools.exec_session import ExecSessionManager
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.tools.skip_reply import SkipReplyTool
 from nanobot.agent.tools.self import MyTool
 from nanobot.agent.turn_delivery import (
     TurnDelivery,
@@ -629,6 +630,9 @@ class AgentLoop:
             )
             registered.append("my")
 
+        self.tools.register(SkipReplyTool())
+        registered.append("skip_reply")
+
         logger.info("Registered {} tools: {}", len(registered), registered)
 
     async def _connect_mcp(self) -> None:
@@ -1014,6 +1018,16 @@ class AgentLoop:
             metadata=dict(metadata or {}),
             workspace=effective_scope.project_path,
         )
+        allow_skip_reply = bool(request_ctx.metadata.get("_allow_skip_reply"))
+        if request_ctx.enabled_tools is None:
+            tool_names = set(effective_tools.tool_names)
+            if allow_skip_reply:
+                request_ctx = dataclasses.replace(request_ctx, enabled_tools=tool_names)
+            else:
+                request_ctx = dataclasses.replace(
+                    request_ctx,
+                    enabled_tools=tool_names - {"skip_reply"},
+                )
         file_state_token = bind_file_states(self._file_state_store.for_session(active_session_key))
         request_token = bind_request_context(request_ctx)
         workspace_token = bind_workspace_scope(effective_scope)
@@ -1835,6 +1849,8 @@ class AgentLoop:
         ctx.all_messages = all_msgs
         ctx.stop_reason = stop_reason
         ctx.had_injections = had_injections
+        if stop_reason == "skip_reply":
+            ctx.suppress_response = True
         if ctx.kind is TurnKind.USER:
             await turn_continuation.maybe_continue_turn(ctx)
 
