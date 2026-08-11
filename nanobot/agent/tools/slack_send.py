@@ -64,6 +64,11 @@ def _resolve_channel_id(token: str, name: str) -> str:
             "Slack channel name with or without '#' (e.g. '#general' or 'general')"
         ),
         message=StringSchema("Message text to send"),
+        thread_ts=StringSchema(
+            "Optional thread timestamp (ts) to reply in an existing thread. "
+            "Pass the ts returned by a previous slack_send call to post as a thread reply.",
+            nullable=True,
+        ),
         required=["channel", "message"],
     )
 )
@@ -109,7 +114,7 @@ class SlackSendTool(Tool):
             "so replies to that message will be processed automatically."
         )
 
-    async def execute(self, channel: str, message: str, **kwargs: Any) -> str:  # type: ignore[override]
+    async def execute(self, channel: str, message: str, thread_ts: str | None = None, **kwargs: Any) -> str:  # type: ignore[override]
         if not self._bot_token:
             return ToolResult.error("Slack bot token not configured")
 
@@ -118,11 +123,15 @@ class SlackSendTool(Tool):
         except RuntimeError as e:
             return ToolResult.error(str(e))
 
+        payload: dict[str, Any] = {"channel": channel_id, "text": message}
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+
         try:
             result = _slack_post(
                 self._bot_token,
                 "chat.postMessage",
-                {"channel": channel_id, "text": message},
+                payload,
             )
         except Exception as e:
             return ToolResult.error(f"Slack API error: {e}")
