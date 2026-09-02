@@ -18,6 +18,7 @@ from nanobot.agent.tools.schema import (
 )
 from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronJobState, CronSchedule
+from nanobot.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanobot.session.keys import UNIFIED_SESSION_KEY
 
 _CRON_PARAMETERS = tool_parameters_schema(
@@ -83,10 +84,14 @@ class CronTool(Tool):
         session_key = (
             raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
         )
-        # Strip runtime context blocks and coerce everything else to JSON-safe
-        # values so the cron store can serialize the job payload.
+        # Runtime context blocks are only meaningful for the live turn. Strip
+        # them before storing so they are not rehydrated as null values later.
+        metadata = dict(ctx.metadata or {})
+        metadata.pop(RUNTIME_CONTEXT_INPUT_META, None)
+        # Coerce any remaining values to JSON-safe values so the cron store can
+        # serialize the job payload.
         metadata = json.loads(
-            json.dumps(dict(ctx.metadata or {}), default=lambda _obj: None),
+            json.dumps(metadata, default=lambda _obj: None),
         )
         return session_key, ctx.channel or "", ctx.chat_id or "", metadata
 
